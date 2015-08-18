@@ -79,6 +79,7 @@ class ConferenceForm(messages.Message):
 class ConferenceForms(messages.Message):
     """ConferenceForms -- multiple Conference outbound form message"""
     items = messages.MessageField(ConferenceForm, 1, repeated=True)
+    
 
 class TeeShirtSize(messages.Enum):
     """TeeShirtSize -- t-shirt size enumeration value"""
@@ -108,3 +109,33 @@ class ConferenceQueryForms(messages.Message):
     """ConferenceQueryForms -- multiple ConferenceQueryForm inbound form message"""
     filters = messages.MessageField(ConferenceQueryForm, 1, repeated=True)
 
+class Session(ndb.Model):
+    name            = ndb.StringProperty(required=True)
+    highlights      = ndb.StringProperty(repeated=True)
+    speaker         = ndb.StringProperty()
+    duration        = ndb.IntegerProperty()
+    typeOfSession   = ndb.StringProperty()
+    startDate       = ndb.DateProperty()
+    startTime       = ndb.DateTimeProperty()
+    
+class SessionForm(messages.Message):
+    name                    = messages.StringField(1)
+    highlights              = messages.StringField(2, repeated=True)
+    speaker                 = messages.StringField(3)
+    duration                = messages.IntegerField(4)
+    typeOfSession           = messages.StringField(5)
+    startDate               = messages.StringField(6)
+    startTime               = messages.StringField(7)
+    websafeKey              = messages.StringField(8)
+    
+class SessionForms(messages.Message):
+    items = messages.MessageField(SessionForm, 1, repeated=True)
+    
+class UserWishlist(ndb.Model):
+    wishlistedSessionKey = ndb.StringProperty(required=True)
+
+class UserWishlistForm(messages.Message):
+    wishlistedSessionKey = messages.StringField(1, required=True)
+
+class UserWishlistForms(messages.Message):
+    items = messages.MessageField(UserWishlistForm, 1, repeated=True)
