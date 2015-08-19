@@ -136,6 +136,3 @@ class UserWishlist(ndb.Model):
 
 class UserWishlistForm(messages.Message):
     wishlistedSessionKey = messages.StringField(1, required=True)
-
-class UserWishlistForms(messages.Message):
-    items = messages.MessageField(UserWishlistForm, 1, repeated=True)

@@ -42,7 +42,6 @@ from models import SessionForm
 from models import SessionForms
 from models import UserWishlist
 from models import UserWishlistForm
-from models import UserWishlistForms
 
 from settings import WEB_CLIENT_ID
 from settings import ANDROID_CLIENT_ID
@@ -223,21 +222,21 @@ class ConferenceApi(remote.Service):
         return request
                 
     def _getUserWishlistByProfile(self, profile):
-        #Given a profile, get its key and return the wishlist used by it.
+        #Given a profile, get its key and return the sessions on the wishlist 
         
         if not profile:
             raise endpoints.BadRequestException("Invalid profile!")
         
         #Get the wishlist entries and add them to the wishlist to return.
         wishlistEntries = UserWishlist.query(ancestor=profile.key).fetch(limit=None)
-        finishedWishlist = UserWishlistForms()
+        finishedWishlist = SessionForms()
         
         if wishlistEntries:
             for entry in wishlistEntries:
-                wl = UserWishlistForm()
-                setattr(wl, "wishlistedSessionKey", getattr(entry, "wishlistedSessionKey"))
-                wl.check_initialized()
-                finishedWishlist.items.append(wl)
+                theSession = ndb.Key(urlsafe=getattr(entry, "wishlistedSessionKey")).get()
+                sf = self._copySessionToForm(theSession)
+                sf.check_initialized()
+                finishedWishlist.items.append(sf)
                 
         return finishedWishlist
         
@@ -477,13 +476,27 @@ class ConferenceApi(remote.Service):
             items=[self._copySessionToForm(oneSession) for oneSession in theSessions]
         )
         
-    @endpoints.method(SESS_GET_REQUEST, UserWishlistForms,
+    @endpoints.method(SESS_GET_REQUEST, SessionForms,
         path='addSessionToWishlist', http_method="POST",
         name="addSessionToWishlist")
     def addSessionToWishlist(self, request):
         """Add a session to a user's wishist by session websafe key."""
         return self._addSessionToWishlist(request)
             
+    @endpoints.method(message_types.VoidMessage, SessionForms,
+            path='getSessionsInWishlist', http_method="GET",
+            name="getSessionsInWishlist")
+    def getSessionsInWishlist(self, request):
+        """Get the sessions on your wishlist."""
+        
+        #Get user profile, and pass it to _getUserWishlistByProfile()
+        user = endpoints.get_current_user()
+        if not user:
+            raise endpoints.UnauthorizedException('Authorization required')
+        user_id = getUserId(user)
+        prof = ndb.Key(Profile, user_id).get()
+        
+        return self._getUserWishlistByProfile(prof)
         
 
     def _getQuery(self, request):
