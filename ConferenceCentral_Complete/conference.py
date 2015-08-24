@@ -466,6 +466,7 @@ class ConferenceApi(remote.Service):
         name="getFeaturedSpeaker", 
         path="getFeaturedSpeaker")
     def getFeaturedSpeaker(self, request):
+        """Get the featured speaker for each conference."""
         return self._getFeaturedSpeakersFromMemcache()
 
     @endpoints.method(CONF_GET_REQUEST, ConferenceForm,
@@ -479,7 +480,6 @@ class ConferenceApi(remote.Service):
             raise endpoints.NotFoundException(
                 'No conference found with key: %s' % request.websafeConferenceKey)
         prof = conf.key.parent().get()
-        # return ConferenceForm
         return self._copyConferenceToForm(conf, getattr(prof, 'displayName'))
 
     #Return sessions by conference.
@@ -599,7 +599,7 @@ class ConferenceApi(remote.Service):
     def getSessionsInWishlist(self, request):
         """Get the sessions on your wishlist."""
         
-        #Get user profile, and pass it to _getUserWishlistByProfile()
+        # Get user profile, and pass it to _getUserWishlistByProfile()
         user = self._getLoggedInUser()
         user_id = getUserId(user)
         
@@ -717,7 +717,7 @@ class ConferenceApi(remote.Service):
             )
             profile.put()
 
-        return profile      # return Profile
+        return profile 
 
 
     def _doProfile(self, save_request=None):
@@ -732,13 +732,8 @@ class ConferenceApi(remote.Service):
                     val = getattr(save_request, field)
                     if val:
                         setattr(prof, field, str(val))
-                        #if field == 'teeShirtSize':
-                        #    setattr(prof, field, str(val).upper())
-                        #else:
-                        #    setattr(prof, field, val)
                         prof.put()
 
-        # return ProfileForm
         return self._copyProfileToForm(prof)
 
 
@@ -888,11 +883,6 @@ class ConferenceApi(remote.Service):
     def filterPlayground(self, request):
         """Filter Playground"""
         q = Conference.query()
-        # field = "city"
-        # operator = "="
-        # value = "London"
-        # f = ndb.query.FilterNode(field, operator, value)
-        # q = q.filter(f)
         q = q.filter(Conference.city=="London")
         q = q.filter(Conference.topics=="Medical Innovations")
         q = q.filter(Conference.month==6)
