@@ -136,3 +136,19 @@ class UserWishlist(ndb.Model):
 
 class UserWishlistForm(messages.Message):
     wishlistedSessionKey = messages.StringField(1, required=True)
+    
+class FeaturedSpeakerMemcacheEntry(ndb.Model):
+    speaker = ndb.StringProperty(required = True)
+    conferenceWebsafeKey = ndb.StringProperty(required=True)
+    sessions = ndb.StringProperty(repeated = True)
+    
+class FeaturedSpeakerMemcacheEntryForm(messages.Message):
+    speaker = messages.StringField(1)
+    conferenceWebsafeKey = messages.StringField(2)
+    sessions = messages.StringField(3, repeated=True)
+
+class FeaturedSpeakerMemcacheEntryForms(messages.Message):
+    items = messages.MessageField(FeaturedSpeakerMemcacheEntryForm, 1, repeated = True)
+
+class FeaturedSpeakerMemcacheKeys(ndb.Model):
+    items = ndb.StringProperty(repeated = True)

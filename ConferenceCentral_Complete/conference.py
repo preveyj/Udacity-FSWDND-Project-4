@@ -15,6 +15,7 @@ __author__ = 'wesc+api@google.com (Wesley Chun)'
 
 from datetime import datetime
 from datetime import date
+from datetime import timedelta
 
 import endpoints
 from protorpc import messages
@@ -42,6 +43,10 @@ from models import SessionForm
 from models import SessionForms
 from models import UserWishlist
 from models import UserWishlistForm
+from models import FeaturedSpeakerMemcacheEntry
+from models import FeaturedSpeakerMemcacheEntryForm
+from models import FeaturedSpeakerMemcacheEntryForms
+from models import FeaturedSpeakerMemcacheKeys
 
 from settings import WEB_CLIENT_ID
 from settings import ANDROID_CLIENT_ID
@@ -55,6 +60,7 @@ API_EXPLORER_CLIENT_ID = endpoints.API_EXPLORER_CLIENT_ID
 MEMCACHE_ANNOUNCEMENTS_KEY = "RECENT_ANNOUNCEMENTS"
 ANNOUNCEMENT_TPL = ('Last chance to attend! The following conferences '
                     'are nearly sold out: %s')
+MEMCACHE_FEATURED_SPEAKER_KEY = "FeaturedSpeaker"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 CONFERENCE_DEFAULTS = {
@@ -100,7 +106,6 @@ CONF_POST_REQUEST = endpoints.ResourceContainer(
     websafeConferenceKey=messages.StringField(1)
 )
 
-#new
 CONF_GET_BY_CITY = endpoints.ResourceContainer(
     message_types.VoidMessage,
     conferenceCity=messages.StringField(1)
@@ -135,6 +140,12 @@ SESS_GET_BY_SPEAKER_REQUEST = endpoints.ResourceContainer(
 SESS_ADD_TO_WISHLIST_REQUEST = endpoints.ResourceContainer(
     message_types.VoidMessage,
     websafeSessionKey=messages.StringField(1)
+)
+
+GET_SESSIONS_BY_NONTYPE_AND_BEFORE_TIME = endpoints.ResourceContainer(
+    message_types.VoidMessage,
+    sessionType=messages.StringField(1, required=True),
+    endTime=messages.StringField(2, required=True)
 )
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -305,6 +316,8 @@ class ConferenceApi(remote.Service):
         # Same as above, copy SessionForm/ProtoRPC Message into dict
         data = {field.name: getattr(request, field.name) for field in request.all_fields()}
        
+        theConferenceWebsafeKey = data['websafeConferenceKey']
+       
         del data['websafeKey']
         del data['websafeConferenceKey']
         
@@ -329,9 +342,65 @@ class ConferenceApi(remote.Service):
 
         # Generate keys
         Session(parent=theConference.key, **data).put()
+        
+        if (data['speaker']):
+            # Check speaker name at this conference for the Featured Speaker memcaches
+            speakerSessions = Session.query(ancestor=theConference.key).filter(Session.speaker == data['speaker']).fetch(limit=None)
+            
+            if (speakerSessions) and (len(speakerSessions) > 1):
+                #Check if the memcache entry exists for this speaker and this conference.
+   
+                theEntry = memcache.get(data['speaker'] + "_" + theConferenceWebsafeKey)
+                theKeys = memcache.get(MEMCACHE_FEATURED_SPEAKER_KEY)
+                
+                entryKey = key = (data['speaker'] + "_" + theConferenceWebsafeKey)
+                
+                if theKeys is None:
+                    theKeys = FeaturedSpeakerMemcacheKeys()
+                
+                if theEntry is None:
+                    theEntry = FeaturedSpeakerMemcacheEntry()
+                    theEntry.speaker = data['speaker']
+                    theEntry.conferenceWebsafeKey = theConferenceWebsafeKey
+                    
+                theEntry.sessions = []
+                
+                for speakerSession in speakerSessions:
+                    theEntry.sessions.append(speakerSession.name)
+                        
+                memcache.set(key = entryKey, 
+                    value = theEntry)
+                    
+                if entryKey not in theKeys.items:
+                    theKeys.items.append(entryKey)
+                    memcache.set(key = MEMCACHE_FEATURED_SPEAKER_KEY, value = theKeys)
+                    
+                    
         return request
 
-
+    def _getFeaturedSpeakersFromMemcache(self):
+        # inserted via key MEMCACHE_FEATURED_SPEAKER_KEY
+        theKeys = memcache.get(key = MEMCACHE_FEATURED_SPEAKER_KEY)
+        thingsToReturn = FeaturedSpeakerMemcacheEntryForms()
+        thingsToReturn.check_initialized()
+        
+        if theKeys:
+            for speakerKey in theKeys.items:
+                entry = memcache.get(key = speakerKey)
+                if entry:
+                    thingsToReturn.items.append(self._copyFeaturedSpeakerToForm(entry))
+                    
+        return thingsToReturn
+            
+    def _copyFeaturedSpeakerToForm(self, Speaker):
+        toReturn = FeaturedSpeakerMemcacheEntryForm()
+        toReturn.check_initialized()
+        toReturn.speaker = Speaker.speaker
+        toReturn.conferenceWebsafeKey = Speaker.conferenceWebsafeKey
+        toReturn.sessions = Speaker.sessions
+        
+        return toReturn
+        
     @ndb.transactional()
     def _updateConferenceObject(self, request):
         user = self._getLoggedInUser()
@@ -391,6 +460,13 @@ class ConferenceApi(remote.Service):
         """Update conference w/provided fields & return w/updated info."""
         return self._updateConferenceObject(request)
 
+    @endpoints.method(message_types.VoidMessage, 
+        FeaturedSpeakerMemcacheEntryForms,
+        http_method="GET", 
+        name="getFeaturedSpeaker", 
+        path="getFeaturedSpeaker")
+    def getFeaturedSpeaker(self, request):
+        return self._getFeaturedSpeakersFromMemcache()
 
     @endpoints.method(CONF_GET_REQUEST, ConferenceForm,
             path='conference/{websafeConferenceKey}',
@@ -451,6 +527,36 @@ class ConferenceApi(remote.Service):
             items=[self._copyConferenceToForm(conf, getattr(prof, 'displayName')) for conf in confs]
         )
         
+    @endpoints.method(CONF_GET_BY_TOPIC, ConferenceForms,
+        path="getConferencesByExactTopic",
+        http_method="POST", name="getConferencesByExactTopic")
+    def getConferencesByExactTopic(self, request):
+        """Get conferences by topic.  Must be a complete match; use getConferencesCreated and copy a topic from there."""
+        confs = Conference.query(Conference.topics == request.conferenceTopic)
+        prof = self._getProfileFromUser()
+        
+        return ConferenceForms(
+            items=[self._copyConferenceToForm(conf, getattr(prof, 'displayName')) for conf in confs]
+        )
+        
+    @endpoints.method(GET_SESSIONS_BY_NONTYPE_AND_BEFORE_TIME, SessionForms,
+        path="getSessionsNotOfTypeAndBeforeTime",
+        http_method="POST", name="getSessionsNotOfTypeAndBeforeTime")
+    def getSessionsNotOfTypeAndBeforeTime(self, request):
+        """Get sessions that are NOT a given type, and that finish before the given 24H time."""
+
+        sessions = Session.query(Session.typeOfSession != request.sessionType)
+        sessionsToReturn = SessionForms()
+        sessionsToReturn.check_initialized()
+        
+        cutoffTime = datetime.strptime(request.endTime, "%H:%M:%S")
+        
+        for sess in sessions:
+            #For each session that finishes before the cutoff time, add it to the list to return.
+            if (cutoffTime > (sess.startTime + timedelta(minutes = sess.duration))):
+                sessionsToReturn.items.append(self._copySessionToForm(sess))
+        
+        return sessionsToReturn
 
     @endpoints.method(SESS_GET_BY_TYPE_REQUEST, SessionForms,
             path='getConferenceSessionsByType',
